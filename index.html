@@ -58,7 +58,7 @@
         
         function autoConnect() {
             setTimeout(() => {
-                fetch("https://api.peerjs.com/peers") // Public peer list (example, may require custom signaling)
+                fetch("https://brave-hill-0252af900.4.azurestaticapps.net/peers") // Public peer list (example, may require custom signaling)
                     .then(response => response.json())
                     .then(peers => {
                         peers.forEach(remoteId => {
