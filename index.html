@@ -3,7 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Multiplayer Snake.io with PeerJS</title>
+    <title>Multiplayer Snake.io with Firebase</title>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
     <script src="https://unpkg.com/peerjs@1.3.1/dist/peerjs.min.js"></script>
     <style>
         canvas { border: 2px solid black; background: #eee; }
@@ -12,13 +14,29 @@
 <body>
     <h1>Multiplayer Snake.io</h1>
     <p>Your ID: <span id="playerId">Connecting...</span></p>
-    <input type="text" id="connectId" placeholder="Enter peer ID to connect" />
-    <button onclick="connectToPeer()">Connect</button>
     <p>Connected Players:</p>
     <ul id="playerList"></ul>
     <canvas id="gameCanvas" width="600" height="400"></canvas>
 
     <script>
+        // Firebase Configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyDvBpJwV0i3a73mPIYuSuk_YqydnyLGX28",
+            authDomain: "game-io-4cc05.firebaseapp.com",
+            databaseURL: "https://game-io-4cc05-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "game-io-4cc05",
+            storageBucket: "game-io-4cc05.firebasestorage.app",
+            messagingSenderId: "236547187479",
+            appId: "1:236547187479:web:a3b0f41cfca24cb8b18d52",
+            measurementId: "G-DRV6Q09DFS"
+        };
+        
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+        const peersRef = db.ref("peers");
+
+        // PeerJS Setup
         const peer = new Peer();
         let connections = [];
         const snakes = {};
@@ -26,71 +44,67 @@
         const ctx = canvas.getContext("2d");
         let mouseX = 0, mouseY = 0;
         const playerList = document.getElementById("playerList");
-
-        // Prompt for player name
         let playerName = prompt("Enter your name:") || "Player";
 
         document.getElementById("playerId").innerText = "Connecting...";
 
-        // Create PeerJS connection
         peer.on("open", (id) => {
             document.getElementById("playerId").innerText = id;
-            // Create player's snake
             snakes[id] = { name: playerName, x: Math.random() * 600, y: Math.random() * 400, speed: 2, angle: 0 };
-            updatePlayerList();
+
+            // Store peer in Firebase
+            peersRef.child(id).set(true);
+
+            // Listen for new peers
+            peersRef.on("value", (snapshot) => {
+                const peers = snapshot.val() ? Object.keys(snapshot.val()) : [];
+                peers.forEach(remoteId => {
+                    if (remoteId !== id && !connections.find(c => c.peer === remoteId)) {
+                        autoConnect(remoteId);
+                    }
+                });
+            });
         });
 
-        // Handle incoming connections
         peer.on("connection", (conn) => {
-            connections.push(conn);
-            conn.on("open", () => {
-                conn.send({ type: "newPlayer", id: peer.id, snake: snakes[peer.id] });
-            });
-
-            conn.on("data", (data) => handleIncomingData(data, conn));
+            setupConnection(conn);
         });
 
-        // Handle incoming data from peers
-        function handleIncomingData(data, conn) {
-            if (data.type === "update") {
-                snakes[data.id] = data.snake;
-            } else if (data.type === "newPlayer") {
-                conn.send({ type: "syncPlayers", snakes });
-                snakes[data.id] = data.snake;
-            } else if (data.type === "syncPlayers") {
-                Object.assign(snakes, data.snakes);
-            }
-            updatePlayerList();
-        }
-
-        // Manually connect to a peer
-        function connectToPeer() {
-            const otherId = document.getElementById("connectId").value;
-            if (!otherId) return alert("Enter a peer ID to connect!");
-
-            let conn = peer.connect(otherId);
+        function autoConnect(remoteId) {
+            let conn = peer.connect(remoteId);
             conn.on("open", () => {
-                connections.push(conn);
-                conn.send({ type: "newPlayer", id: peer.id, snake: snakes[peer.id] });
+                setupConnection(conn);
             });
-
-            conn.on("data", (data) => handleIncomingData(data, conn));
         }
 
-        // Track mouse movement
+        function setupConnection(conn) {
+            connections.push(conn);
+            conn.send({ type: "newPlayer", id: peer.id, snake: snakes[peer.id] });
+
+            conn.on("data", (data) => {
+                if (data.type === "update") {
+                    snakes[data.id] = data.snake;
+                } else if (data.type === "newPlayer") {
+                    conn.send({ type: "syncPlayers", snakes });
+                    snakes[data.id] = data.snake;
+                } else if (data.type === "syncPlayers") {
+                    Object.assign(snakes, data.snakes);
+                }
+                updatePlayerList();
+            });
+        }
+
         canvas.addEventListener("mousemove", (event) => {
             mouseX = event.clientX - canvas.offsetLeft;
             mouseY = event.clientY - canvas.offsetTop;
         });
 
-        // Update game state
         function updateGame() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
             for (let id in snakes) {
                 let snake = snakes[id];
 
-                // Move player-controlled snake
                 if (id === peer.id) {
                     let dx = mouseX - snake.x;
                     let dy = mouseY - snake.y;
@@ -99,14 +113,12 @@
                     snake.y += Math.sin(snake.angle) * snake.speed;
                 }
 
-                // Draw snakes
                 ctx.fillStyle = id === peer.id ? "blue" : "red";
                 ctx.fillRect(snake.x, snake.y, 10, 10);
                 ctx.fillStyle = "black";
                 ctx.fillText(snake.name, snake.x, snake.y - 5);
             }
 
-            // Send updates to connected peers
             connections.forEach(conn => {
                 conn.send({ type: "update", id: peer.id, snake: snakes[peer.id] });
             });
@@ -114,7 +126,6 @@
             requestAnimationFrame(updateGame);
         }
 
-        // Update player list UI
         function updatePlayerList() {
             playerList.innerHTML = "";
             for (let id in snakes) {
@@ -125,6 +136,11 @@
         }
 
         updateGame();
+
+        // Cleanup when player leaves
+        window.addEventListener("beforeunload", () => {
+            peersRef.child(peer.id).remove();
+        });
     </script>
 </body>
 </html>
