@@ -167,7 +167,7 @@
             for (let id in snakes) {
                 let li = document.createElement("li");
                 let snake = snakes[id];
-                li.textContent = `${snake.name} - Score: ${snake.score || 0}`;
+                li.textContent = `${snake.name} : ${snake.score || 0}`;
                 playerList.appendChild(li);
             }
         }
